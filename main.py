@@ -62,10 +62,37 @@ class RandomTransWrapper(object):
             return img
         return self.seq.augment_image(img)
         
+
+def getFilesPath(datapath):
+    folderpaths = glob.glob(os.path.join(datapath, 'CKA_16*'))
+    folderpaths.sort()
+    filepaths = []
+    for f in folderpaths:
+        ss = glob.glob(os.path.join(f,'annotations/dlp/colorCleaned','*.png'))
+        ss.sort()
+
+        for s in ss:
+            name = os.path.basename(s)
+            i = os.path.join(f,'images/rgb',name)
+            # Check
+            if not os.path.exists(i): continue
+            filepaths.append({'img':i,'seg':s})
+
+    p = np.random.permutation(len(filepaths))
+    return filepaths[p]
+
+def getPart(data,isTrain):
+    n = len(data)
+    lim = int(0.8*n)
+
+    if isTrain: data[:lim]
+    else      : data[lim:]
+
+
 class SugarDataset(torch.utils.data.Dataset):
-    def __init__(self, datapath, isTrain):
+    def __init__(self, filepaths, isTrain):
         # Parameters
-        self.imgPath, self.segPath = self.getFilesPath(datapath,isTrain)
+        self.filepaths = filepaths
         self.isTrain = isTrain
         self.H = 384
         self.W = 512
@@ -123,7 +150,7 @@ class SugarDataset(torch.utils.data.Dataset):
     # Load Segmentation data
     def loadSeg(self, idx):
         # Read GT
-        seg = cv.imread(self.segPath[idx], cv.IMREAD_COLOR)
+        seg = cv.imread(self.segPath[idx]['seg'], cv.IMREAD_COLOR)
         seg = self.segTransform(seg)
 
         rock  = (seg[2]>0)
@@ -137,7 +164,7 @@ class SugarDataset(torch.utils.data.Dataset):
 
     # Load image
     def loadImage(self, idx):
-        img = cv.imread(self.imgPath[idx], cv.IMREAD_COLOR)
+        img = cv.imread(self.filepaths[idx]['img'], cv.IMREAD_COLOR)
         img = self.imgTransform(img)
         return img
     
@@ -452,9 +479,11 @@ class DiceLoss(nn.Module):
 
 class Main(object):
     """ Constructor """
-    def __init__(self,model,imgpath="/gdrive/MyDrive/Rover/SugarBeet/ijrr_sugarbeets_2016_annotations",
+    def __init__(self,model,imgpath="SugarBeet/ijrr_sugarbeets_2016_annotations",
+                            outpath="",
                             n_epoch=500):
         # Parameters
+        self.outpath = outpath
         self.n_epoch = n_epoch
         self.isVAE    = False
         self.multiBCE = True
@@ -473,11 +502,24 @@ class Main(object):
                                        weight_decay=1e-8, momentum=0.9)
         
         # Dataset
-        self.trainDataset = DataLoader(SugarDataset(imgpath,isTrain=True),
-                                              batch_size=4)
-        self.evalDataset  = DataLoader(SugarDataset(imgpath,isTrain=False),
-                                              batch_size=4)
+        paths = getFilesPath(imgpath)
+        self.trainDataset = DataLoader(SugarDataset(getPart(paths,isTrain=True),
+                                                    isTrain=True),batch_size=4)
+        self.evalDataset  = DataLoader(SugarDataset(getPart(paths,isTrain=False),
+                                                    isTrain=False),batch_size=4)
         
+    """ Training state functions """
+    def state_reset(self):
+        self._state = {}
+    def state_add(self,name,attr):
+        self._state[name]=attr
+
+    def state_save(self,epoch):
+        # Save model
+        pathMod = os.path.join( self.outpath, "model" + str(epoch) + ".pth" )
+        torch.save( self._state, pathMod)
+
+
     """ Training """
     def train(self):
         # Parameters
@@ -574,6 +616,11 @@ class Main(object):
             # Save
             self.crvTrain.append(lossTrain)
             self.crvTest .append(lossEval )
+
+            # Save checkpoint
+            self.state_add (    'model',self.    model.state_dict())
+            self.state_add ('optimizer',self.optimizer.state_dict())
+            self.state_save(epoch+1)
 
 
     def plot(self):
