@@ -22,7 +22,6 @@ from   torch.utils.data import DataLoader
 class Main(object):
     """ Constructor """
     def __init__(self,model,imgpath="SugarBeet/ijrr_sugarbeets_2016_annotations",
-                            wightpath='',
                             outpath="",
                             n_epoch=500):
         # Parameters
@@ -184,7 +183,13 @@ class Main(object):
                 
                 # Model
                 dev_pred = self.model(dev_img)
+                host_pred = dev_pred.data.cpu().numpy()
+                print(host_pred.shape)
+                print(host_pred)
 
+
+
+"""
                 # Batch
                 hst_img = sample['img']
                 dev_img = hst_img.to(self.device)
@@ -206,7 +211,7 @@ class Main(object):
                 out[:,:,2] = output
 
                 cvimshow(np.hstack([img,out]))
-
+"""
 
 
 # =========================================================================================================
